@@ -1,9 +1,12 @@
+extern crate image;
+
 extern crate nalgebra as na;
 extern crate nalgebra_lapack as nal;
 
-use na::{DMatrix, Complex, ComplexField, OVector, Dyn};
+use na::{DMatrix, Complex, ComplexField, OVector, Dyn, RealField};
 use nal::Eigen;
 use rand::{seq::SliceRandom, Rng};
+use image::{RgbImage, Rgb};
 
 fn main() {
     let dim = 5;
@@ -21,8 +24,40 @@ fn main() {
     let egvs = collect_eigenvalues(&matrix, &variable_indices, n_ts, &samples);
     println!("{}", matrix);
     println!("{:?}", egvs.len());
+    save_eigen_image(egvs, 2000, 2000);
 }
 
+fn save_eigen_image(eigenvalues: Vec<Complex<f64>>, width: u32, height: u32) {
+    let mut img = RgbImage::new(width, height);
+    for x in 0..width {
+        for y in 0..height {
+            img.put_pixel(x, y, Rgb([244, 240, 232]));
+        }
+    }
+    let (xmin, xmax, ymin, ymax) = eigenvalues.iter().fold((0.,0.,0.,0.), |(xmin, xmax, ymin, ymax), z| {
+        (f64::min(xmin, z.re), f64::max(xmax, z.re), f64::min(ymin, z.im), f64::max(ymax, z.im))
+    });
+    let margin = width.max(height) / 20;
+    for egv in eigenvalues.iter() {
+        img.put_pixel(
+            round(clamp(egv.re, xmin, xmax, margin as f64, (width - margin) as f64)),
+            round(clamp(egv.im, ymin, ymax, margin as f64, (height - margin) as f64)),
+            Rgb([56, 59, 62]));
+    }
+    img.save("/tmp/test.png").expect("Couldn't save image");
+}
+
+fn round(x: f64) -> u32 {
+    x.round() as u32
+}
+
+fn clamp(x: f64, mina: f64, maxa: f64, minb: f64, maxb: f64) -> f64 {
+    assert!(x >= mina);
+    assert!(x <= maxa);
+    (x - mina) * (maxb - minb) / (maxa - mina) + minb
+}
+
+/// Collect a vector of all eigenvalues of the matrix instances with sampled variables
 fn collect_eigenvalues(mat: &DMatrix<Complex<f64>>, indices: &IndexList, n_ts: usize, samples: &Vec<Vec<Complex<f64>>>)
     -> Vec<Complex<f64>>
 {
@@ -56,7 +91,7 @@ fn sample_ts(ns: usize, n_ts: usize, distrib: Distribution) -> Vec<Vec<Complex<f
             for _ in 0..ns {
                 samples.push(
                     (0..n_ts).map(|_| { 
-                        let phase = rng.gen_range(0.0..1.0);
+                        let phase = rng.gen_range((0.0_f64)..(f64::two_pi()));
                         Complex::new(phase.cos(), phase.sin())
                     }).collect()
                 )
