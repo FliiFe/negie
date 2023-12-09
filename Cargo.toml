@@ -1,0 +1,9 @@
+[package]
+name = "negie"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nalgebra = {version = "*", path = "../nalgebra/" }
+nalgebra-lapack = { version = "*", path = "../nalgebra/nalgebra-lapack" }
+rand = "0.8"
