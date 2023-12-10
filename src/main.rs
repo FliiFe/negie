@@ -1,62 +1,97 @@
+extern crate rand_distr;
 extern crate image;
 extern crate imageproc;
 
 extern crate nalgebra as na;
 extern crate nalgebra_lapack as nal;
 
-use na::{DMatrix, Complex, ComplexField, OVector, Dyn, RealField};
+use na::{DMatrix, Complex, RealField, Dyn, OVector, ComplexField};
 use nal::Eigen;
-use rand::{seq::SliceRandom, Rng};
 use image::{RgbImage, Rgb};
 
-use std::time::{Instant, Duration};
+use rand::{seq::SliceRandom, Rng};
+use rand_distr::{Normal, Distribution};
 
+use std::{time::Instant, path::Path};
+
+use clap::Parser;
+
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    /// An output file. Extension must be png. Default is ./negie.png
+    #[arg(short, long)]
+    output: Option<std::path::PathBuf>,
+    /// Dimension of the random square matrix to generate
+    #[arg(short = 'N', long)]
+    dim: Option<usize>,
+    /// Number of variables to use. Defaults is 2.
+    #[arg(short, long)]
+    variables: Option<usize>,
+    /// Number of samples to take. Default is 300000.
+    #[arg(short = 'n', long)]
+    samples: Option<usize>,
+    /// Output image's side length. Default is 12000.
+    #[arg(short, long)]
+    size: Option<u32>,
+    /// Radius of each eigenvalue's circle. Default is heuristically determined.
+    #[arg(short, long)]
+    radius: Option<i32>,
+    /// Statistical distribution to use for sampling. Ex: uniformunits, uniformrects:20.0,
+    /// normal:20.0
+    #[arg(short = 'd', long)]
+    distrib: Option<SamplingDistribution>,
+}
 
 fn main() {
-    let dim = 5;
-    let n_ts = 2;
-    let nsamples = 100000;
-    let pop = vec![Complex::i(),
-                    -Complex::i(),
-                    // Complex::from_real(0.),
-                    // Complex::from_real(1.),
-                    // Complex::from_real(0.2),
-                    ];
+    let args = Cli::parse();
+    let dim = args.dim.unwrap_or(5);
+    let n_ts = args.variables.unwrap_or(2);
+    let nsamples = args.samples.unwrap_or(300000);
+    let i= Complex::i();
+    let pop = vec![i, -i, Complex::from_real(0.), Complex::from_real(1.), Complex::from_real(0.5)];
     let matrix = random_matrix(dim, pop);
-    let variable_indices = random_indices_distinct_variables(dim, n_ts);
-    let samples = sample_ts(nsamples, n_ts, Distribution::UniformRects { r: 20. });
-    let start = Instant::now();
-    let egvs = collect_eigenvalues(&matrix, &variable_indices, n_ts, &samples);
-    println!("duration {:?}", start.elapsed());
     println!("{}", matrix);
-    println!("{:?}", egvs.len());
-    save_eigen_image(egvs, nsamples, 2000, 2000);
+    let variable_indices = random_indices_distinct_variables(dim, n_ts);
+    println!("Indices for varibales: {:?}", variable_indices);
+    let start = Instant::now();
+    let distrib = args.distrib.unwrap_or(SamplingDistribution::UniformUnits);
+    println!("Using distribution: {:?}", distrib);
+    let samples = sample_ts(nsamples, n_ts, distrib);
+    let egvs = collect_eigenvalues(&matrix, &variable_indices, n_ts, &samples);
+    println!("Eigenvalue collection took {:?}.", start.elapsed());
+    let width = args.size.unwrap_or(12000);
+    save_eigen_image(args.output.as_deref(), egvs, nsamples, width, width, args.radius);
 }
 
 
-fn save_eigen_image(eigenvalues: Vec<Complex<f64>>, nsamples: usize, width: u32, height: u32) {
+fn save_eigen_image(path: Option<&Path>, eigenvalues: Vec<Complex<f64>>, nsamples: usize, width: u32, height: u32, radius: Option<i32>) {
     let mut img = RgbImage::new(width, height);
     for x in 0..width {
         for y in 0..height {
-            img.put_pixel(x, y, Rgb([244, 240, 232]));
+            img.put_pixel(x, y, Rgb([255-244, 255-240, 255-232]));
         }
     }
     let (xmin, xmax, ymin, ymax) = eigenvalues.iter().fold((0.,0.,0.,0.), |(xmin, xmax, ymin, ymax), z| {
         (f64::min(xmin, z.re), f64::max(xmax, z.re), f64::min(ymin, z.im), f64::max(ymax, z.im))
     });
-    let (min, max) = (xmin.min(ymin), xmax.max(ymax));
+    let (min, max) = (xmin.min(ymin).max(-8.), xmax.max(ymax).min(8.));
     let margin = width.max(height) / 20;
-    let radius = 50. * (width as f64 / (nsamples as f64));
-    println!("radius: {}", radius);
+    let radius : i32 = radius.unwrap_or(i32::min(round(50. * (width as f64 / (nsamples as f64))).try_into().unwrap(), <u32 as TryInto<i32>>::try_into(width).unwrap() / 1000));
+    println!("Drawing with radius: {}", radius);
     for egv in eigenvalues.iter() {
-        imageproc::drawing::draw_filled_circle_mut(&mut img,
-            (round(clamp(egv.re, min, max, margin as f64, (width - margin) as f64)).try_into().unwrap(),
-            round(clamp(egv.im, min, max, margin as f64, (height - margin) as f64)).try_into().unwrap()),
-            round(radius).try_into().unwrap(),
-            Rgb([56, 59, 62]));
+        if egv.re < max && egv.re > min && egv.im > min && egv.im < max {
+            imageproc::drawing::draw_filled_circle_mut(&mut img,
+                (round(clamp(egv.re, min, max, margin as f64, (width - margin) as f64)).try_into().unwrap(),
+                round(clamp(egv.im, min, max, (height - margin) as f64, margin as f64)).try_into().unwrap()),
+                radius,
+                Rgb([255-56, 255-59, 255-62]));
+        }
     }
     print!("Saving picture...");
-    img.save("/tmp/test.png").expect("Couldn't save image");
+    let actual_path = path.unwrap_or(Path::new("negie.png"));
+    assert_eq!(actual_path.extension().expect("No file extension!"), "png");
+    img.save(actual_path).expect("Couldn't save image");
     println!("DONE");
 }
 
@@ -86,21 +121,49 @@ fn collect_eigenvalues(mat: &DMatrix<Complex<f64>>, indices: &IndexList, n_ts: u
 }
 
 /// Types of distribution to use for sampling
-enum Distribution {
+#[derive(Debug)]
+enum SamplingDistribution {
     Normal { s: f64 },
     UniformRects { r: f64 },
     UniformUnits
+}
+
+impl Clone for SamplingDistribution {
+    fn clone(&self) -> Self {
+        return self.to_owned()
+    }
+}
+
+impl From<&str> for SamplingDistribution {
+    fn from(value: &str) -> Self {
+        if value == "taurus" || value == "units" || value == "uniformunits" {
+            return Self::UniformUnits
+        }
+        let parts: Vec<&str> = value.split(':').collect();
+        assert_eq!(parts.len(), 2);
+
+        let word = parts[0].to_string();
+        let num = parts[1].parse::<f64>().map_err(|_| "Unable to parse number").expect("Could not parse f64 in distribution");
+        
+        if word == "uniform" || word == "uniformrects" || word == "rects" {
+            return Self::UniformRects { r: num }
+        };
+        if word == "normal" || word == "normalrects" {
+            return Self::Normal { s: num }
+        };
+        panic!("Could not parse distribution")
+    }
 }
 
 /// Sample ns different values of all n_ts t values according to the given distribution
 /// ns: how many samples to take
 /// n_ts: how many variable in each sample
 /// distrib: distribution to follow for sampling
-fn sample_ts(ns: usize, n_ts: usize, distrib: Distribution) -> Vec<Vec<Complex<f64>>> {
+fn sample_ts(ns: usize, n_ts: usize, distrib: SamplingDistribution) -> Vec<Vec<Complex<f64>>> {
     let mut rng = rand::thread_rng();
     let mut samples = vec![];
     match distrib {
-        Distribution::UniformUnits => {
+        SamplingDistribution::UniformUnits => {
             for _ in 0..ns {
                 samples.push(
                     (0..n_ts).map(|_| { 
@@ -110,7 +173,7 @@ fn sample_ts(ns: usize, n_ts: usize, distrib: Distribution) -> Vec<Vec<Complex<f
                 )
             }
         }
-        Distribution::UniformRects { r } => {
+        SamplingDistribution::UniformRects { r } => {
             for _ in 0..ns {
                 samples.push(
                     (0..n_ts).map(|_| { 
@@ -119,7 +182,17 @@ fn sample_ts(ns: usize, n_ts: usize, distrib: Distribution) -> Vec<Vec<Complex<f
                 )
             }
         }
-        _ => {}
+        SamplingDistribution::Normal { s } => {
+            let dist = Normal::new(0.0_f64, s).unwrap();
+            for _ in 0..ns {
+                samples.push(
+                    (0..n_ts).map(|_| { 
+                        let val : f64 = dist.sample(&mut rng);
+                        Complex::new(val, 0.0_f64)
+                    }).collect()
+                )
+            }
+        }
     }
     samples
 }
@@ -128,7 +201,7 @@ type IndexList = Vec<(usize, usize, usize)>;
 
 /// Get random indices in an n*n matrix, each associated to a different variable t
 fn random_indices_distinct_variables(n: usize, n_ts: usize) -> IndexList {
-    let indices: Vec<(usize, usize)> = (0..n).zip(0..n).clone().collect();
+    let indices: Vec<(usize, usize)> = (0..n*n).map(|i| { (i % n, i / n) }).clone().collect();
     indices.choose_multiple(&mut rand::thread_rng(), n_ts).cloned().zip(0..n_ts).map(|((i,j),k)| { (i,j,k) }).collect()
 }
 

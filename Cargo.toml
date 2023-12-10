@@ -7,3 +7,7 @@ edition = "2021"
 nalgebra = {version = "*", path = "../nalgebra/" }
 nalgebra-lapack = { version = "*", path = "../nalgebra/nalgebra-lapack" }
 rand = "0.8"
+image = "*"
+imageproc = "*"
+rand_distr = "0.4.3"
+clap = { version = "4.0", features = ["derive"] }
