@@ -9,7 +9,7 @@ test = false
 bench = false
 
 [dependencies]
-nalgebra = {version = "*", path = "../nalgebra/" }
+nalgebra = {version = "*" }
 rand = "0.8"
 image = "*"
 imageproc = "*"
