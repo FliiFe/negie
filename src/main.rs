@@ -3,16 +3,14 @@ extern crate image;
 extern crate imageproc;
 
 extern crate nalgebra as na;
-extern crate nalgebra_lapack as nal;
 
 use na::{DMatrix, Complex, RealField, Dyn, OVector, ComplexField};
-use nal::Eigen;
 use image::{RgbImage, Rgb};
 
 use rand::{seq::SliceRandom, Rng};
 use rand_distr::{Normal, Distribution};
 
-use std::{time::Instant, path::Path};
+use std::{time::Instant, path::Path, str::FromStr};
 
 use clap::Parser;
 
@@ -26,8 +24,8 @@ struct Cli {
     #[arg(short = 'N', long)]
     dim: Option<usize>,
     /// Number of variables to use. Defaults is 2.
-    #[arg(short, long)]
-    variables: Option<usize>,
+    #[arg(short = 'k', long)]
+    nvar: Option<usize>,
     /// Number of samples to take. Default is 300000.
     #[arg(short = 'n', long)]
     samples: Option<usize>,
@@ -41,18 +39,129 @@ struct Cli {
     /// normal:20.0
     #[arg(short = 'd', long)]
     distrib: Option<SamplingDistribution>,
+    /// Matrix to use. Overrides -d. Must be either "random" or a comma-separated list of complex
+    /// numbers of length n^2 for some n.
+    #[arg(short, long, default_value = "random")]
+    matrix: ComplexMatrixDescriptor,
+    /// Variable indices. Semicolon-separated list of comma-separated triplets i,j,k to use t_k in
+    /// the spot (i,j). 0,0,0;1,1,1 replaces the first two coefficients of the main diagonal with
+    /// t_0, t_1 respectively. Use "random" for the default behavior.
+    #[arg(short, long, default_value = "random")]
+    variable: VariableIndicesDescriptor
+}
+
+#[derive(Clone, Debug)]
+enum VariableIndicesDescriptor {
+    Random,
+    List { list : IndexList }
+}
+
+impl From<&str> for VariableIndicesDescriptor {
+    fn from(value: &str) -> Self {
+        if value == "random" {
+            Self::Random
+        } else {
+            let parts : IndexList = value.split(";").map(|s| {
+                let ijk : Vec<usize> = s.split(",").map(|x| { usize::from_str(x).expect("Could not parse index in variable index list") }).collect();
+                assert_eq!(ijk.len(), 3, "Variable index element was not a triplet.");
+                (ijk[0], ijk[1], ijk[2])
+            }).collect();
+            Self::List { list: parts }
+        }
+    }
+}
+
+/// Types of distribution to use for sampling
+#[derive(Clone, Debug)]
+enum SamplingDistribution {
+    Normal { s: f64 },
+    UniformRects { r: f64 },
+    UniformUnits
+}
+
+impl From<&str> for SamplingDistribution {
+    fn from(value: &str) -> Self {
+        if value == "taurus" || value == "units" || value == "uniformunits" {
+            return Self::UniformUnits
+        }
+        let parts: Vec<&str> = value.split(':').collect();
+        assert_eq!(parts.len(), 2);
+
+        let word = parts[0].to_string();
+        let num = parts[1].parse::<f64>().map_err(|_| "Unable to parse number").expect("Could not parse f64 in distribution");
+        
+        if word == "uniform" || word == "uniformrects" || word == "rects" {
+            return Self::UniformRects { r: num }
+        };
+        if word == "normal" || word == "normalrects" {
+            return Self::Normal { s: num }
+        };
+        panic!("Could not parse distribution")
+    }
+}
+
+fn isqrt(num: usize) -> usize {
+    let mut sqrt = num;
+    let mut next_sqrt = (sqrt + num / sqrt) / 2;
+    while next_sqrt < sqrt {
+        sqrt = next_sqrt;
+        next_sqrt = (sqrt + num / sqrt) / 2;
+    }
+    sqrt
+}
+
+#[derive(Clone, Debug)]
+enum ComplexMatrixDescriptor {
+    Random,
+    Matrix { coefs: Vec<Complex<f64>>, size: usize }
+}
+
+impl From<&str> for ComplexMatrixDescriptor {
+    fn from(value: &str) -> Self {
+        if value == "random" {
+            Self::Random
+        } else {
+            let coefs: Vec<&str> = value.split(",").collect();
+            assert_ne!(1, coefs.len(), "Can't operate on 1x1 matrix;");
+            let size = isqrt(coefs.len());
+            assert_eq!(size*size, coefs.len(), "Provided matrix was not a square matrix");
+            Self::Matrix {
+                coefs: coefs.iter()
+                    .map(|s| {
+                        Complex::from_str(s).expect("Could nor parse coefficient in the provided matrix!")
+                    })
+                    .collect(),
+                size
+            }
+        }
+    }
 }
 
 fn main() {
     let args = Cli::parse();
-    let dim = args.dim.unwrap_or(5);
-    let n_ts = args.variables.unwrap_or(2);
+    let mut dim = args.dim.unwrap_or(5);
+    let mut n_ts = args.nvar.unwrap_or(2);
     let nsamples = args.samples.unwrap_or(300000);
     let i= Complex::i();
     let pop = vec![i, -i, Complex::from_real(0.), Complex::from_real(1.), Complex::from_real(0.5)];
-    let matrix = random_matrix(dim, pop);
+    let matrix = match args.matrix {
+        ComplexMatrixDescriptor::Random => random_matrix(dim, pop),
+        ComplexMatrixDescriptor::Matrix { coefs, size } => {
+            dim = size;
+            DMatrix::from_vec(size, size, coefs)
+        }
+    };
     println!("{}", matrix);
-    let variable_indices = random_indices_distinct_variables(dim, n_ts);
+    let variable_indices = match args.variable {
+        VariableIndicesDescriptor::Random => random_indices_distinct_variables(dim, n_ts),
+        VariableIndicesDescriptor::List { list } => {
+            n_ts = list.iter().cloned().fold(0, |a, (i,j,k)| { 
+                assert!(i < dim && j < dim, "Index {},{} in variable indices list was out of bounds", i, j);
+                a.max(k)
+            }) + 1;
+            list
+        }
+    };
     println!("Indices for varibales: {:?}", variable_indices);
     let start = Instant::now();
     let distrib = args.distrib.unwrap_or(SamplingDistribution::UniformUnits);
@@ -69,7 +178,7 @@ fn save_eigen_image(path: Option<&Path>, eigenvalues: Vec<Complex<f64>>, nsample
     let mut img = RgbImage::new(width, height);
     for x in 0..width {
         for y in 0..height {
-            img.put_pixel(x, y, Rgb([255-244, 255-240, 255-232]));
+            img.put_pixel(x, y, Rgb([244, 240, 232]));
         }
     }
     let (xmin, xmax, ymin, ymax) = eigenvalues.iter().fold((0.,0.,0.,0.), |(xmin, xmax, ymin, ymax), z| {
@@ -85,7 +194,7 @@ fn save_eigen_image(path: Option<&Path>, eigenvalues: Vec<Complex<f64>>, nsample
                 (round(clamp(egv.re, min, max, margin as f64, (width - margin) as f64)).try_into().unwrap(),
                 round(clamp(egv.im, min, max, (height - margin) as f64, margin as f64)).try_into().unwrap()),
                 radius,
-                Rgb([255-56, 255-59, 255-62]));
+                Rgb([56, 59, 62]));
         }
     }
     print!("Saving picture...");
@@ -118,41 +227,6 @@ fn collect_eigenvalues(mat: &DMatrix<Complex<f64>>, indices: &IndexList, n_ts: u
         }
     }
     egvs
-}
-
-/// Types of distribution to use for sampling
-#[derive(Debug)]
-enum SamplingDistribution {
-    Normal { s: f64 },
-    UniformRects { r: f64 },
-    UniformUnits
-}
-
-impl Clone for SamplingDistribution {
-    fn clone(&self) -> Self {
-        return self.to_owned()
-    }
-}
-
-impl From<&str> for SamplingDistribution {
-    fn from(value: &str) -> Self {
-        if value == "taurus" || value == "units" || value == "uniformunits" {
-            return Self::UniformUnits
-        }
-        let parts: Vec<&str> = value.split(':').collect();
-        assert_eq!(parts.len(), 2);
-
-        let word = parts[0].to_string();
-        let num = parts[1].parse::<f64>().map_err(|_| "Unable to parse number").expect("Could not parse f64 in distribution");
-        
-        if word == "uniform" || word == "uniformrects" || word == "rects" {
-            return Self::UniformRects { r: num }
-        };
-        if word == "normal" || word == "normalrects" {
-            return Self::Normal { s: num }
-        };
-        panic!("Could not parse distribution")
-    }
 }
 
 /// Sample ns different values of all n_ts t values according to the given distribution
@@ -237,7 +311,5 @@ fn replace_indices(mat: &DMatrix<Complex<f64>>, ind: &IndexList, ts: &Vec<Comple
 
 // Get a square complex matrix' eigenvalues
 fn eigenvalues(mat: DMatrix<Complex<f64>>) -> OVector<Complex<f64>, Dyn> {
-    let owned_matrix = mat.clone_owned();
-    let eigen = Eigen::new_complex(owned_matrix, false, false).expect("No eigen!!!!");
-    eigen.eigenvalues
+    mat.eigenvalues().expect("No eigenvalues!")
 }
