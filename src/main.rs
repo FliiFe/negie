@@ -4,7 +4,7 @@ extern crate imageproc;
 
 extern crate nalgebra as na;
 
-use na::{DMatrix, Complex, RealField, Dyn, OVector, ComplexField};
+use na::{DMatrix, Complex, RealField, ComplexField, DVector};
 use image::{RgbImage, Rgb};
 
 use rand::{seq::SliceRandom, Rng};
@@ -310,6 +310,6 @@ fn replace_indices(mat: &DMatrix<Complex<f64>>, ind: &IndexList, ts: &Vec<Comple
 }
 
 // Get a square complex matrix' eigenvalues
-fn eigenvalues(mat: DMatrix<Complex<f64>>) -> OVector<Complex<f64>, Dyn> {
+fn eigenvalues(mat: DMatrix<Complex<f64>>) -> DVector<Complex<f64>> {
     mat.eigenvalues().expect("No eigenvalues!")
 }
