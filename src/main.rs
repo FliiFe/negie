@@ -1,149 +1,31 @@
+mod cli;
+pub mod maths;
+
 extern crate rand_distr;
 extern crate image;
 extern crate imageproc;
 
 extern crate nalgebra as na;
 
-use na::{DMatrix, Complex, RealField, ComplexField, DVector};
+use na::{DMatrix, Complex, RealField, DVector};
 use image::{RgbImage, Rgb};
 
 use rand::{seq::SliceRandom, Rng};
 use rand_distr::{Normal, Distribution};
 
-use std::{time::Instant, path::Path, str::FromStr};
+use std::{time::Instant, path::Path};
 
 use clap::Parser;
+use crate::cli::{Cli, ComplexMatrixDescriptor, SamplingDistribution, VariableIndicesDescriptor};
+use crate::maths::{clamp, round};
 
-#[derive(Parser)]
-#[command(author, version, about, long_about = None)]
-struct Cli {
-    /// An output file. Extension must be png. Default is ./negie.png
-    #[arg(short, long)]
-    output: Option<std::path::PathBuf>,
-    /// Dimension of the random square matrix to generate
-    #[arg(short = 'N', long)]
-    dim: Option<usize>,
-    /// Number of variables to use. Defaults is 2.
-    #[arg(short = 'k', long)]
-    nvar: Option<usize>,
-    /// Number of samples to take. Default is 300000.
-    #[arg(short = 'n', long)]
-    samples: Option<usize>,
-    /// Output image's side length. Default is 12000.
-    #[arg(short, long)]
-    size: Option<u32>,
-    /// Radius of each eigenvalue's circle. Default is heuristically determined.
-    #[arg(short, long)]
-    radius: Option<i32>,
-    /// Statistical distribution to use for sampling. Ex: uniformunits, uniformrects:20.0,
-    /// normal:20.0
-    #[arg(short = 'd', long)]
-    distrib: Option<SamplingDistribution>,
-    /// Matrix to use. Overrides -d. Must be either "random" or a comma-separated list of complex
-    /// numbers of length n^2 for some n.
-    #[arg(short, long, default_value = "random")]
-    matrix: ComplexMatrixDescriptor,
-    /// Variable indices. Semicolon-separated list of comma-separated triplets i,j,k to use t_k in
-    /// the spot (i,j). 0,0,0;1,1,1 replaces the first two coefficients of the main diagonal with
-    /// t_0, t_1 respectively. Use "random" for the default behavior.
-    #[arg(short, long, default_value = "random")]
-    variable: VariableIndicesDescriptor
-}
-
-#[derive(Clone, Debug)]
-enum VariableIndicesDescriptor {
-    Random,
-    List { list : IndexList }
-}
-
-impl From<&str> for VariableIndicesDescriptor {
-    fn from(value: &str) -> Self {
-        if value == "random" {
-            Self::Random
-        } else {
-            let parts : IndexList = value.split(";").map(|s| {
-                let ijk : Vec<usize> = s.split(",").map(|x| { usize::from_str(x).expect("Could not parse index in variable index list") }).collect();
-                assert_eq!(ijk.len(), 3, "Variable index element was not a triplet.");
-                (ijk[0], ijk[1], ijk[2])
-            }).collect();
-            Self::List { list: parts }
-        }
-    }
-}
-
-/// Types of distribution to use for sampling
-#[derive(Clone, Debug)]
-enum SamplingDistribution {
-    Normal { s: f64 },
-    UniformRects { r: f64 },
-    UniformUnits
-}
-
-impl From<&str> for SamplingDistribution {
-    fn from(value: &str) -> Self {
-        if value == "taurus" || value == "units" || value == "uniformunits" {
-            return Self::UniformUnits
-        }
-        let parts: Vec<&str> = value.split(':').collect();
-        assert_eq!(parts.len(), 2);
-
-        let word = parts[0].to_string();
-        let num = parts[1].parse::<f64>().map_err(|_| "Unable to parse number").expect("Could not parse f64 in distribution");
-        
-        if word == "uniform" || word == "uniformrects" || word == "rects" {
-            return Self::UniformRects { r: num }
-        };
-        if word == "normal" || word == "normalrects" {
-            return Self::Normal { s: num }
-        };
-        panic!("Could not parse distribution")
-    }
-}
-
-fn isqrt(num: usize) -> usize {
-    let mut sqrt = num;
-    let mut next_sqrt = (sqrt + num / sqrt) / 2;
-    while next_sqrt < sqrt {
-        sqrt = next_sqrt;
-        next_sqrt = (sqrt + num / sqrt) / 2;
-    }
-    sqrt
-}
-
-#[derive(Clone, Debug)]
-enum ComplexMatrixDescriptor {
-    Random,
-    Matrix { coefs: Vec<Complex<f64>>, size: usize }
-}
-
-impl From<&str> for ComplexMatrixDescriptor {
-    fn from(value: &str) -> Self {
-        if value == "random" {
-            Self::Random
-        } else {
-            let coefs: Vec<&str> = value.split(",").collect();
-            assert_ne!(1, coefs.len(), "Can't operate on 1x1 matrix;");
-            let size = isqrt(coefs.len());
-            assert_eq!(size*size, coefs.len(), "Provided matrix was not a square matrix");
-            Self::Matrix {
-                coefs: coefs.iter()
-                    .map(|s| {
-                        Complex::from_str(s).expect("Could nor parse coefficient in the provided matrix!")
-                    })
-                    .collect(),
-                size
-            }
-        }
-    }
-}
 
 fn main() {
     let args = Cli::parse();
     let mut dim = args.dim.unwrap_or(5);
     let mut n_ts = args.nvar.unwrap_or(2);
     let nsamples = args.samples.unwrap_or(300000);
-    let i= Complex::i();
-    let pop = vec![i, -i, Complex::from_real(0.), Complex::from_real(1.), Complex::from_real(0.5)];
+    let pop = args.population.pop;
     let matrix = match args.matrix {
         ComplexMatrixDescriptor::Random => random_matrix(dim, pop),
         ComplexMatrixDescriptor::Matrix { coefs, size } => {
@@ -162,9 +44,9 @@ fn main() {
             list
         }
     };
-    println!("Indices for varibales: {:?}", variable_indices);
+    println!("Indices for variables: {:?}", variable_indices);
     let start = Instant::now();
-    let distrib = args.distrib.unwrap_or(SamplingDistribution::UniformUnits);
+    let distrib = args.distrib;
     println!("Using distribution: {:?}", distrib);
     let samples = sample_ts(nsamples, n_ts, distrib);
     let egvs = collect_eigenvalues(&matrix, &variable_indices, n_ts, &samples);
@@ -202,16 +84,6 @@ fn save_eigen_image(path: Option<&Path>, eigenvalues: Vec<Complex<f64>>, nsample
     assert_eq!(actual_path.extension().expect("No file extension!"), "png");
     img.save(actual_path).expect("Couldn't save image");
     println!("DONE");
-}
-
-fn round(x: f64) -> u32 {
-    x.round() as u32
-}
-
-fn clamp(x: f64, mina: f64, maxa: f64, minb: f64, maxb: f64) -> f64 {
-    assert!(x >= mina);
-    assert!(x <= maxa);
-    (x - mina) * (maxb - minb) / (maxa - mina) + minb
 }
 
 /// Collect a vector of all eigenvalues of the matrix instances with sampled variables
