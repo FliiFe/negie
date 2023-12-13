@@ -7,7 +7,7 @@ readme = "README.md"
 keywords = ["mathematics", "eigenvalues", "complex-analysis", "bohemian-matrix"]
 categories = ["command-line-utility", "graphics", "mathematics", "science", "visualization"]
 homepage = "https://github.com/FliiFe/negie"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 
 [[bin]]
