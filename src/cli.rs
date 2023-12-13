@@ -29,11 +29,11 @@ pub struct Cli {
     /// normal:20.0
     #[arg(short = 'd', long, default_value = "uniformunits")]
     pub distrib: SamplingDistribution,
-    /// Matrix to use. Overrides -d. Must be either "random" or a comma-separated list of complex
+    /// Matrix to use. Overrides -N. Must be either "random" or a comma-separated list of complex
     /// numbers of length n^2 for some n. Coefficients are expected in column-first order.
     #[arg(short, long, default_value = "random")]
     pub matrix: ComplexMatrixDescriptor,
-    /// Variable indices. Semicolon-separated list of comma-separated triplets i,j,k to use t_k in
+    /// Variable indices. Overrides -v. Semicolon-separated list of comma-separated triplets i,j,k to use t_k in
     /// the spot (i,j). 0,0,0;1,1,1 replaces the first two coefficients of the main diagonal with
     /// t_0, t_1 respectively. Use "random" for the default behavior.
     #[arg(short, long, default_value = "random")]
