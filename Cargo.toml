@@ -1,5 +1,12 @@
 [package]
 name = "negie"
+description = "Generate complex scatter plots of eigenvalues from parametrized bohemian matrices"
+repository = "https://github.com/FliiFe/negie"
+license = "MIT"
+readme = "README.md"
+keywords = ["mathematics", "eigenvalues", "complex-analysis", "computational-analysis", "bohemian-matrix"]
+categories = ["command-line-utility", "graphics", "mathematics", "science", "visualization"]
+homepage = "https://github.com/FliiFe/negie"
 version = "0.1.0"
 edition = "2021"
 
