@@ -40,7 +40,7 @@ fn serialize_distrib(distrib: &SamplingDistribution) -> String {
 pub fn write_exif_data(cli: &Configuration) {
     // exiftool -overwrite_original -UserComment="Your descriptive string here" /path/to/yourimage.jpg
     print!("Writing exif data to output picture ... ");
-    let cli_run = Command::new("exiftool.exe")
+    let cli_run = Command::new("exiftool")
         .arg("-overwrite_original")
         .arg(format!("-UserComment=\"--matrix={} --variables={} --population={} --distrib={}\"",
                      serialize_matrix(&cli.matrix),
