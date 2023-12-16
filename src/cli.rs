@@ -6,25 +6,26 @@ use std::str::FromStr;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
-pub struct Cli {
-    /// An output file. Extension must be png. Default is ./negie.png
-    #[arg(short, long)]
-    pub output: Option<std::path::PathBuf>,
-    /// Dimension of the random square matrix to generate
-    #[arg(short = 'N', long)]
-    pub dim: Option<usize>,
-    /// Number of variables to use. Defaults is 2.
-    #[arg(short = 'k', long)]
-    pub nvar: Option<usize>,
+pub struct Configuration {
+    /// An output file.
+    #[arg(short, long, default_value = "./negie.png")]
+    pub output: std::path::PathBuf,
+    /// Dimension of the random square matrix to generate.
+    #[arg(short = 'N', long, default_value = "5")]
+    pub dim: usize,
+    /// Number of variables to use.
+    #[arg(short = 'k', long, default_value = "2")]
+    pub nvar: usize,
     /// Number of samples to take. Default is 300000.
-    #[arg(short = 'n', long)]
-    pub samples: Option<usize>,
+    #[arg(short = 'n', long, default_value = "300000")]
+    pub samples: usize,
     /// Output image's side length. Default is 12000.
-    #[arg(short, long)]
-    pub size: Option<u32>,
-    /// Radius of each eigenvalue's circle on the output picture. Default is heuristically determined.
-    #[arg(short, long)]
-    pub radius: Option<i32>,
+    #[arg(short, long, default_value = "12000")]
+    pub size: u32,
+    /// Integer radius of each eigenvalue's marker on the output picture. Default is heuristically
+    /// determined.
+    #[arg(short, long, default_value = "default")]
+    pub radius: RadiusDescriptor,
     /// Statistical distribution to use for sampling. Ex: uniformunits, uniformrects:20.0,
     /// normal:20.0
     #[arg(short = 'd', long, default_value = "uniformunits")]
@@ -37,11 +38,26 @@ pub struct Cli {
     /// the spot (i,j). 0,0,0;1,1,1 replaces the first two coefficients of the main diagonal with
     /// t_0, t_1 respectively. Use "random" for the default behavior.
     #[arg(short, long, default_value = "random")]
-    pub variable: VariableIndicesDescriptor,
+    pub variables: VariableIndicesDescriptor,
     /// Population to choose coefficients from when using a random matrix. Comma-separated list of
     /// complex numbers. Value "default" is [i,-i,0,1,.5].
     #[arg(short, long, default_value = "default")]
     pub population: ComplexPopulation
+}
+
+#[derive(Clone, Debug)]
+pub enum RadiusDescriptor {
+    Default,
+    Radius(i32)
+}
+
+impl From<&str> for RadiusDescriptor {
+    fn from(value: &str) -> Self {
+        match <i32 as FromStr>::from_str(value) {
+            Ok(i) => Self::Radius(i),
+            Err(_) => Self::Default
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
