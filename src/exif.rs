@@ -42,7 +42,7 @@ pub fn write_exif_data(cli: &Configuration) {
     print!("Writing exif data to output picture ... ");
     let cli_run = Command::new("exiftool")
         .arg("-overwrite_original")
-        .arg(format!("-UserComment=\"--matrix={} --variables={} --population={} --distrib={}\"",
+        .arg(format!("-UserComment=--matrix={} --variables={} --population={} --distrib={}",
                      serialize_matrix(&cli.matrix),
                      serialize_indexlist(&cli.variables),
                      serialize_complexvec(&cli.population.pop),
