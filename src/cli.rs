@@ -34,8 +34,8 @@ pub struct Configuration {
     /// numbers of length n^2 for some n. Coefficients are expected in column-first order.
     #[arg(short, long, default_value = "random")]
     pub matrix: ComplexMatrixDescriptor,
-    /// Variable indices. Overrides -v. Semicolon-separated list of comma-separated triplets i,j,k to use t_k in
-    /// the spot (i,j). 0,0,0;1,1,1 replaces the first two coefficients of the main diagonal with
+    /// Variable indices. Overrides -v. Colon-separated list of comma-separated triplets i,j,k to use t_k in
+    /// the spot (i,j). 0,0,0:1,1,1 replaces the first two coefficients of the main diagonal with
     /// t_0, t_1 respectively. Use "random" for the default behavior.
     #[arg(short, long, default_value = "random")]
     pub variables: VariableIndicesDescriptor,
@@ -71,7 +71,7 @@ impl From<&str> for VariableIndicesDescriptor {
         if value == "random" {
             Self::Random
         } else {
-            let parts : IndexList = value.split(";").map(|s| {
+            let parts : IndexList = value.split(":").map(|s| {
                 let ijk : Vec<usize> = s.split(",").map(|x| { usize::from_str(x).expect("Could not parse index in variable index list") }).collect();
                 assert_eq!(ijk.len(), 3, "Variable index element was not a triplet.");
                 (ijk[0], ijk[1], ijk[2])
